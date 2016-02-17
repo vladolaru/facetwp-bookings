@@ -41,6 +41,9 @@ class FacetWP_Facet_Availability
 
     function __construct() {
         $this->label = __( 'Availability', 'fwp' );
+
+        // Store unfiltered IDs
+        add_filter( 'facetwp_store_unfiltered_post_ids', '__return_true' );
     }
 
 
@@ -70,11 +73,15 @@ class FacetWP_Facet_Availability
         $values = $params['selected_values'];
         $where = '';
 
-        $start_date = empty( $values[0] ) ? false : $values[0];
-        $end_date = empty( $values[1] ) ? false : $values[1];
-        $quantity = empty( $values[2] ) ? false : $values[2];
+        $start_date = empty( $values[0] ) ? '' : $values[0];
+        $end_date = empty( $values[1] ) ? '' : $values[1];
+        $quantity = empty( $values[2] ) ? 1 : (int) $values[2];
 
-        return $this->get_available_bookings( $start_date, $end_date, $quantity );
+        if ( $this->is_valid_date( $start_date ) && $this->is_valid_date( $end_date ) ) {
+            return $this->get_available_bookings( $start_date, $end_date, $quantity );
+        }
+
+        return array();
     }
 
 
@@ -87,7 +94,67 @@ class FacetWP_Facet_Availability
      * @return array Available post IDs
      */
     function get_available_bookings( $start_date, $end_date, $quantity = 1 ) {
-        return array();
+        $matches = array();
+
+        $start = explode( '-', $start_date );
+        $end = explode( '-', $end_date );
+        $duration = $this->calculate_duration( $start_date, $end_date );
+
+        $args = array(
+            'wc_bookings_field_persons' => $quantity,
+            'wc_bookings_field_duration' => $duration,
+            'wc_bookings_field_start_date_year' => $start[0],
+            'wc_bookings_field_start_date_month' => $start[1],
+            'wc_bookings_field_start_date_day' => $start[2],
+            'wc_bookings_field_start_date_to_year' => $end[0],
+            'wc_bookings_field_start_date_to_month' => $end[1],
+            'wc_bookings_field_start_date_to_day' => $end[2],
+        );
+
+        foreach ( FWP()->unfiltered_post_ids as $post_id ) {
+            if ( 'product' == get_post_type( $post_id ) ) {
+                $product = wc_get_product( $post_id );
+                if ( is_wc_booking_product( $product ) ) {
+                    $booking_form = new WC_Booking_Form( $product );
+                    $posted_data = $booking_form->get_posted_data( $args );
+
+                    // returns WP_Error on fail
+                    if ( true === $booking_form->is_bookable( $posted_data ) ) {
+                        $matches[] = $post_id;
+                    }
+                }
+            }
+        }
+
+        return $matches;
+    }
+
+
+    /**
+     * Calculate days between 2 date intervals
+     */
+    function calculate_duration( $start_date, $end_date ) {
+        if ( $start_date > $end_date ) {
+            return 0;
+        }
+
+        $start = strtotime( $start_date );
+        $end = strtotime( $end_date );
+        $diff = ( $end - $start );
+        return floor( $diff / ( 60 * 60 * 24 ) ) + 1;
+    }
+
+
+    /**
+     * Validate date input
+     */
+    function is_valid_date( $date ) {
+        if ( empty( $date ) ) {
+            return false;
+        }
+
+        $d = DateTime::createFromFormat( 'Y-m-d', $date );
+        return $d && $d->format( 'Y-m-d' ) == $date;
     }
 
 
@@ -116,15 +183,15 @@ class FacetWP_Facet_Availability
      */
     function front_scripts() {
 ?>
-<link href="<?php echo FACETWP_URL; ?>/assets/js/bootstrap-datepicker/bootstrap-datepicker.css?ver=1.5.1" rel="stylesheet">
-<script src="<?php echo FACETWP_URL; ?>/assets/js/bootstrap-datepicker/bootstrap-datepicker.min.js?ver=1.5.1"></script>
+<link href="<?php echo FACETWP_URL; ?>/assets/js/bootstrap-datepicker/bootstrap-datepicker.css?ver=1.6.0" rel="stylesheet">
+<script src="<?php echo FACETWP_URL; ?>/assets/js/bootstrap-datepicker/bootstrap-datepicker.min.js?ver=1.6.0"></script>
 <script>
 (function($) {
     wp.hooks.addAction('facetwp/refresh/availability', function($this, facet_name) {
         var min = $this.find('.facetwp-date-min').val() || '';
         var max = $this.find('.facetwp-date-max').val() || '';
         var quantity = $this.find('.facetwp-quantity').val() || 1;
-        FWP.facets[facet_name] = ('' != min || '' != max) ? [min, max, quantity] : [];
+        FWP.facets[facet_name] = ('' != min && '' != max) ? [min, max, quantity] : [];
     });
 
     wp.hooks.addFilter('facetwp/selections/availability', function(output, params) {
