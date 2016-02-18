@@ -159,6 +159,8 @@ class FacetWP_Facet_Availability
 
     /**
      * Validate date input
+     *
+     * @requires PHP 5.3+
      */
     function is_valid_date( $date ) {
         if ( empty( $date ) ) {
