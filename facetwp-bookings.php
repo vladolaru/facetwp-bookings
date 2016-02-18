@@ -5,6 +5,7 @@ Plugin URI: https://facetwp.com/
 Description: WooCommerce Bookings support
 Version: 0.1
 Author: Matt Gibbs
+GitHub Plugin URI: https://github.com/FacetWP/facetwp-bookings
 
 Copyright 2016 Matt Gibbs
 
@@ -23,6 +24,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 */
 
 defined( 'ABSPATH' ) or exit;
+
+include( dirname( __FILE__ ) . '/install-github-updater.php' );
 
 /**
  * Register facet type
@@ -71,7 +74,6 @@ class FacetWP_Facet_Availability
 
         $facet = $params['facet'];
         $values = $params['selected_values'];
-        $where = '';
 
         $start_date = empty( $values[0] ) ? '' : $values[0];
         $end_date = empty( $values[1] ) ? '' : $values[1];
@@ -98,11 +100,10 @@ class FacetWP_Facet_Availability
 
         $start = explode( '-', $start_date );
         $end = explode( '-', $end_date );
-        $duration = $this->calculate_duration( $start_date, $end_date );
 
         $args = array(
             'wc_bookings_field_persons' => $quantity,
-            'wc_bookings_field_duration' => $duration,
+            'wc_bookings_field_duration' => 1,
             'wc_bookings_field_start_date_year' => $start[0],
             'wc_bookings_field_start_date_month' => $start[1],
             'wc_bookings_field_start_date_day' => $start[2],
@@ -115,6 +116,12 @@ class FacetWP_Facet_Availability
             if ( 'product' == get_post_type( $post_id ) ) {
                 $product = wc_get_product( $post_id );
                 if ( is_wc_booking_product( $product ) ) {
+
+                    // Support WooCommerce Accomodation Bookings plugin
+                    $unit = ( 'accommodation-booking' == $product->product_type ) ? 'night' : 'day';
+                    $duration = $this->calculate_duration( $start_date, $end_date, $unit );
+                    $args['wc_bookings_field_duration'] = $duration;
+
                     $booking_form = new WC_Booking_Form( $product );
                     $posted_data = $booking_form->get_posted_data( $args );
 
@@ -132,16 +139,21 @@ class FacetWP_Facet_Availability
 
     /**
      * Calculate days between 2 date intervals
+     *
+     * @requires PHP 5.3+
      */
-    function calculate_duration( $start_date, $end_date ) {
+    function calculate_duration( $start_date, $end_date, $unit = 'day' ) {
         if ( $start_date > $end_date ) {
             return 0;
         }
+        if ( $start_date == $end_date ) {
+            return 1;
+        }
 
-        $start = strtotime( $start_date );
-        $end = strtotime( $end_date );
-        $diff = ( $end - $start );
-        return floor( $diff / ( 60 * 60 * 24 ) ) + 1;
+        $start = new DateTime( $start_date );
+        $end = new DateTime( $end_date );
+        $diff = (int) $end->diff( $start )->format( '%a' );
+        return ( 'day' == $unit ) ? $diff + 1 : $diff;
     }
 
 
